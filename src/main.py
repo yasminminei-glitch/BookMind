@@ -1,7 +1,8 @@
+
 from pathlib import Path
 
 from .documents.reader import ler_pdf
-from .search.retriever import buscar_trechos
+from .search.retriever import BuscadorSemantico
 from .assistant.responder import gerar_resposta
 
 
@@ -23,7 +24,17 @@ def main():
 
     pergunta = input("\nFaça uma pergunta sobre o livro: ")
 
-    resultados = buscar_trechos(pergunta, trechos)
+    print("\nPreparando busca semântica...")
+
+    buscador = BuscadorSemantico(trechos)
+    resultados = buscador.buscar(pergunta, limite=3)
+
+    print("\nTrechos selecionados:")
+
+    for resultado in resultados:
+        print(f"Página {resultado['pagina']}")
+        print(resultado["texto"])
+        print("--------------------")
 
     resposta = gerar_resposta(pergunta, resultados)
 
