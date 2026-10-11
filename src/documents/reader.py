@@ -1,33 +1,104 @@
+
 from pathlib import Path
+import re
+
 import pymupdf
 
 from .splitter import dividir_texto
+
+
+
+def limpar_texto(texto):
+    texto = re.sub(
+        r"MEMÓRIAS PÓSTUMAS DE BRÁS CUBAS\s*[•\-–]\s*\d+\s*[•\-–]",
+        " ",
+        texto,
+        flags=re.IGNORECASE
+    )
+
+    linhas = texto.splitlines()
+
+    linhas_limpas = [
+        linha.strip()
+        for linha in linhas
+        if linha.strip()
+    ]
+
+    return " ".join(linhas_limpas)
 
 
 def ler_pdf(caminho):
     caminho = Path(caminho)
 
     if not caminho.is_file():
-        print("Erro: arquivo PDF não encontrado.")
+        print(f"Erro: PDF não encontrado: {caminho.name}")
         return []
 
     todos_trechos = []
 
-    with pymupdf.open(caminho) as documento:
-        print(f"Total de páginas: {len(documento)}")
+    try:
+        with pymupdf.open(caminho) as documento:
+            print(f"\nLendo: {caminho.name}")
+            print(f"Total de páginas: {len(documento)}")
 
-        for numero_pagina, pagina in enumerate(documento, start=1):
-            texto = pagina.get_text()
+            for numero_pagina, pagina in enumerate(
+                documento,
+                start=1
+            ):
+                texto = limpar_texto(pagina.get_text())
 
-            trechos = dividir_texto(texto, numero_pagina)
+                if not texto.strip():
+                    continue
 
-            todos_trechos.extend(trechos)
+                trechos = dividir_texto(
+                    texto,
+                    numero_pagina
+                )
 
-    print(f"Total de trechos criados: {len(todos_trechos)}")
+                for trecho in trechos:
+                    trecho["arquivo"] = caminho.name
 
-    if todos_trechos:
-        print("\nPrimeiro trecho:")
-        print(f"Página: {todos_trechos[0]['pagina']}")
-        print(todos_trechos[0]["texto"][:500])
+                todos_trechos.extend(trechos)
+
+        print(f"Trechos criados: {len(todos_trechos)}")
+
+    except (
+        pymupdf.FileDataError,
+        pymupdf.EmptyFileError
+    ) as erro:
+        print(f"Erro ao ler {caminho.name}: {erro}")
+        return []
+
+    return todos_trechos
+
+
+def ler_pasta_pdfs(caminho_pasta):
+    caminho_pasta = Path(caminho_pasta)
+
+    if not caminho_pasta.is_dir():
+        print("Erro: pasta de PDFs não encontrada.")
+        return []
+
+    arquivos = sorted(
+        arquivo
+        for arquivo in caminho_pasta.iterdir()
+        if arquivo.is_file()
+        and arquivo.suffix.lower() == ".pdf"
+    )
+
+    if not arquivos:
+        print("Nenhum PDF encontrado na pasta.")
+        return []
+
+    todos_trechos = []
+
+    print(f"\nEncontrados {len(arquivos)} arquivos PDF.")
+
+    for arquivo in arquivos:
+        trechos = ler_pdf(arquivo)
+        todos_trechos.extend(trechos)
+
+    print("\nLeitura concluída.")
+    print(f"Total de trechos: {len(todos_trechos)}")
 
     return todos_trechos

@@ -9,15 +9,24 @@ from google import genai
 load_dotenv()
 
 
-def paginas_disponiveis(resultados):
-    paginas = set()
+def fontes_disponiveis(resultados):
+    fontes = set()
 
     for resultado in resultados:
-        paginas.update(
-            resultado.get("paginas", [resultado["pagina"]])
+        arquivo = resultado.get("arquivo")
+
+        if not arquivo:
+            continue
+
+        paginas = resultado.get(
+            "paginas",
+            [resultado["pagina"]]
         )
 
-    return sorted(paginas)
+        for pagina in paginas:
+            fontes.add((arquivo, pagina))
+
+    return fontes
 
 
 def extrair_json(texto):
@@ -35,7 +44,10 @@ def extrair_json(texto):
 
 def gerar_resposta(pergunta, resultados):
     if not resultados:
-        return "Não encontrei informações suficientes no livro para responder."
+        return (
+            "Não encontrei informações suficientes "
+            "nos documentos para responder."
+        )
 
     chave = os.getenv("GEMINI_API_KEY")
 
@@ -47,7 +59,7 @@ def gerar_resposta(pergunta, resultados):
         for resultado in resultados
     )
 
-    paginas_validas = set(paginas_disponiveis(resultados))
+    fontes_validas = fontes_disponiveis(resultados)
 
     instrucao = f"""
 Você é o assistente BookMind.
@@ -57,31 +69,38 @@ Responda à pergunta usando exclusivamente os trechos fornecidos.
 Regras:
 1. Não invente informações.
 2. Se não houver evidência suficiente, admita isso.
-3. Identifique somente as páginas que sustentam diretamente a resposta.
-4. Não inclua páginas apenas porque foram consultadas.
-5. Não invente números de páginas.
-6. Responda em português brasileiro.
-7. Retorne exclusivamente um objeto JSON válido.
-8. Não use blocos Markdown.
+3. Identifique somente as fontes que sustentam diretamente a resposta.
+4. Cada fonte deve conter o nome exato do arquivo e o número da página.
+5. Não inclua fontes apenas porque foram consultadas.
+6. Não invente nomes de arquivos ou números de páginas.
+7. Não misture informações de documentos diferentes.
+8. Responda em português brasileiro.
+9. Retorne exclusivamente um objeto JSON válido.
+10. Não use blocos Markdown.
 
 Formato obrigatório:
 
 {{
     "resposta": "Sua resposta aqui",
-    "paginas": [1, 2]
+    "fontes": [
+        {{
+            "arquivo": "documento.pdf",
+            "pagina": 1
+        }}
+    ]
 }}
 
 Se não houver informações suficientes, utilize:
 
 {{
     "resposta": "Não encontrei informações suficientes nos trechos fornecidos.",
-    "paginas": []
+    "fontes": []
 }}
 
 Pergunta:
 {pergunta}
 
-Trechos do livro:
+Trechos dos documentos:
 {trechos}
 """
 
@@ -114,25 +133,35 @@ Trechos do livro:
             return "A IA retornou um formato de resposta inesperado."
 
         texto_resposta = dados.get("resposta")
-        paginas_resposta = dados.get("paginas")
+        fontes_resposta = dados.get("fontes")
 
         if not isinstance(texto_resposta, str):
             return "A IA não retornou uma resposta textual válida."
 
-        if not isinstance(paginas_resposta, list):
-            return "A IA não retornou uma lista de páginas válida."
+        if not isinstance(fontes_resposta, list):
+            return "A IA não retornou uma lista de fontes válida."
 
-        paginas_citadas = set()
+        fontes_citadas = set()
 
-        for pagina in paginas_resposta:
-            if type(pagina) is not int:
+        for fonte in fontes_resposta:
+            if not isinstance(fonte, dict):
                 return "A IA retornou referências em formato inválido."
 
-            paginas_citadas.add(pagina)
+            arquivo = fonte.get("arquivo")
+            pagina = fonte.get("pagina")
 
-        if not paginas_citadas.issubset(paginas_validas):
+            if (
+                not isinstance(arquivo, str)
+                or not arquivo.strip()
+                or type(pagina) is not int
+            ):
+                return "A IA retornou referências em formato inválido."
+
+            fontes_citadas.add((arquivo, pagina))
+
+        if not fontes_citadas.issubset(fontes_validas):
             return (
-                "A IA citou páginas que não estavam nos trechos "
+                "A IA citou fontes que não estavam nos trechos "
                 "consultados. A resposta não foi apresentada."
             )
 
@@ -141,20 +170,20 @@ Trechos do livro:
         if not texto_resposta:
             return "A IA retornou uma resposta vazia."
 
-        if not paginas_citadas:
+        if not fontes_citadas:
             return (
                 f"{texto_resposta}\n\n"
-                "Páginas utilizadas: nenhuma identificada."
+                "Fontes: nenhuma referência identificada."
             )
 
-        referencias = ", ".join(
-            str(pagina)
-            for pagina in sorted(paginas_citadas)
+        referencias = "\n".join(
+            f"- {arquivo} — página {pagina}"
+            for arquivo, pagina in sorted(fontes_citadas)
         )
 
         return (
             f"{texto_resposta}\n\n"
-            f"Páginas utilizadas: {referencias}"
+            f"Fontes:\n{referencias}"
         )
 
     except Exception as erro:

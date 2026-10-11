@@ -1,8 +1,9 @@
 
 from pathlib import Path
 
-from .documents.reader import ler_pdf
+from .documents.reader import ler_pasta_pdfs
 from .search.retriever import BuscadorSemantico
+from .search.reranker import Reclassificador
 from .assistant.responder import gerar_resposta
 
 
@@ -11,37 +12,83 @@ def main():
     print("       BOOKMIND ASSISTANT       ")
     print("================================")
 
-    print("\nCarregando Dom Casmurro...")
-
     pasta_projeto = Path(__file__).resolve().parent.parent
-    caminho_livro = pasta_projeto / "books" / "dom_casmurro.pdf"
+    pasta_livros = pasta_projeto / "books"
 
-    trechos = ler_pdf(caminho_livro)
+    print("\nCarregando documentos...")
+
+    trechos = ler_pasta_pdfs(pasta_livros)
 
     if not trechos:
-        print("Nenhum trecho encontrado no livro.")
+        print("Nenhum trecho encontrado nos documentos.")
         return
 
-    pergunta = input("\nFaça uma pergunta sobre o livro: ")
+    arquivos = sorted({
+        trecho["arquivo"]
+        for trecho in trechos
+    })
 
-    print("\nPreparando busca semântica...")
+    print("\nDocumentos disponíveis:")
+
+    for arquivo in arquivos:
+        print(f"- {arquivo}")
+
+    pergunta = input(
+        "\nFaça uma pergunta sobre os documentos: "
+    ).strip()
+
+    if not pergunta:
+        print("Nenhuma pergunta informada.")
+        return
+
+    print("\nPreparando busca...")
 
     buscador = BuscadorSemantico(trechos)
-    resultados = buscador.buscar(pergunta, limite=3)
+
+    # Recuperação ampla.
+    candidatos = buscador.buscar(
+        pergunta,
+        limite=50
+    )
+
+    print(
+        f"\nCandidatos recuperados: {len(candidatos)}"
+    )
+
+    print("\nReclassificando candidatos...")
+
+    reclassificador = Reclassificador()
+
+    resultados = reclassificador.reclassificar(
+        pergunta,
+        candidatos,
+        limite=3
+    )
 
     print("\nTrechos selecionados:")
 
     for resultado in resultados:
-        print(f"Página {resultado['pagina']}")
+        print(
+            f"\nArquivo: {resultado['arquivo']}"
+        )
+        print(
+            f"Página principal: {resultado['pagina']}"
+        )
+        print(
+            f"Pontuação do reranker: "
+            f"{resultado['pontuacao_reranker']:.4f}"
+        )
         print(resultado["texto"])
         print("--------------------")
 
-    resposta = gerar_resposta(pergunta, resultados)
+    resposta = gerar_resposta(
+        pergunta,
+        resultados
+    )
 
     print("\n================================")
     print("          RESPOSTA")
     print("================================")
-
     print(resposta)
 
 
